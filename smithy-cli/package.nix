@@ -14,7 +14,6 @@
 
 let
   dynamicMitmFetch = import ../dynamic-mitm-fetch.nix { inherit pkgs patchedNix; };
-  fetchDeps = pkgs.callPackage ~/nixpkgs/master/pkgs/development/tools/build-managers/gradle/fetch-deps.nix { };
 in
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "smithy-cli";
@@ -45,7 +44,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   # replaced) -- see ../test-smithy-mitm.nix and ../README.md.
   mitmCache =
     let
-      expanded = fetchDeps {
+      expanded = gradle.fetchDeps {
         pkg = { pname = finalAttrs.pname; };
         data = ./deps.json;
       };

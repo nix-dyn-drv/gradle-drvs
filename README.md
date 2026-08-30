@@ -62,13 +62,13 @@ nothing to prove a hash against.
   via `dynamicMitmFetch` instead of `gradle.fetchDeps`. Exposed as
   `packages.<system>.smithy-cli` in the flake. This is the real end-to-end
   build (see "Verified so far" below) — not just a `mitmCache` unit test.
-- **`deps-subset.json`**, **`deps-subset-plugins.json`** — trimmed real
-  slices of `smithy-cli`'s `deps.json` for fast iteration (3 files / 93
-  files respectively) before attempting the full ~606-artifact set.
+- **`deps-subset.json`** — trimmed real slice of `smithy-cli`'s `deps.json`
+  (3 files: gson jar + poms) for fast iteration before running against the
+  full ~600-artifact set.
 - **`flake.nix`** — packages the patched Nix (`packages.<system>.patched-nix`,
-  from `NixOS/nix#15793`) and the library function
-  (`lib.<system>.dynamicMitmFetch`) for downstream use.
-- **`design-plan-agent-report.md`** — background design notes from planning.
+  from `NixOS/nix#15793`), the library function
+  (`lib.<system>.dynamicMitmFetch`), and the built package
+  (`packages.<system>.smithy-cli`) for downstream use.
 
 ## Why a patched Nix is required
 
@@ -124,11 +124,9 @@ passthru attribute to get there from a compact lockfile — see
 
 - Standalone 3-entry mechanism test: passes, byte-identical content vs.
   reference fetches.
-- Real `smithy-cli` dependency subset (gson jar+poms, 3 files): passes, hash
-  matches nixpkgs' recorded `deps.json` hash exactly.
-- Real `smithy-cli` dependency subset (`plugins.gradle.org` group, 93 files
-  including 6 synthesized `maven-metadata.xml`): passes, ~17s wall time,
-  correct tree shape.
+- Real `smithy-cli` dependency subset (gson jar+poms, 3 files, see
+  `deps-subset.json`): passes, hash matches nixpkgs' recorded `deps.json`
+  hash exactly.
 - **Full end-to-end `smithy-cli` build against the real, complete
   `deps.json`** (`smithy-cli/package.nix`, ~600 artifacts / ~1100 files):
   registration of all ~1100 dynamic fetch derivations completed in a few

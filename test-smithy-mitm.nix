@@ -7,19 +7,19 @@
   pkgs ? import <nixpkgs> { },
   patchedNix ? builtins.storePath /nix/store/i0vbmsxgy74fj135isyhd51b15xarwwz-nix-2.36.0pre20260802_8307c48,
   # Path to a deps.json (or subset) to drive the test.
-  depsFile ? /home/tbereknyei/nixpkgs/master/pkgs/by-name/sm/smithy-cli/deps.json,
+  depsFile ? ./smithy-cli/deps.json,
 }:
 let
   dynamicMitmFetch = import ./dynamic-mitm-fetch.nix { inherit pkgs patchedNix; };
 
-  fetchDeps = pkgs.callPackage ~/nixpkgs/master/pkgs/development/tools/build-managers/gradle/fetch-deps.nix { };
-
+  # `gradle.fetchDeps` is a passthru on nixpkgs' own `gradle` package --
+  # no need to reach into a local nixpkgs checkout for it.
   # Force only `.data` (the expanded JSON, as a store path) -- this is a
   # separate thunk from `mitm-cache.fetch`'s own `code`/`fetchurl` machinery,
   # so reading it does not pay the eval-time cost we're trying to avoid.
   # `fetch-deps.nix` always forces `pkg.pname` for naming purposes, so we
   # hand it a synthetic package attrset rather than a real nixpkgs attrPath.
-  expanded = fetchDeps {
+  expanded = pkgs.gradle.fetchDeps {
     pkg = { pname = "smithy-cli-mitm-test"; };
     data = depsFile;
   };
