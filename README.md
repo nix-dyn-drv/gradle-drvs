@@ -69,6 +69,10 @@ nothing to prove a hash against.
   from `NixOS/nix#15793`), the library function
   (`lib.<system>.dynamicMitmFetch`), and the built package
   (`packages.<system>.smithy-cli`) for downstream use.
+- **`run-nix.sh`** — wrapper that resolves the patched Nix and re-execs into
+  it with the alt store + required experimental/system features already
+  set. Use this instead of invoking `nix` directly — see "Why a patched Nix
+  is required" below.
 
 ## Why a patched Nix is required
 
@@ -82,49 +86,43 @@ already vetted by the sibling `~/nixgg` project) as `packages.<system>.patched-n
 
 Because the *system* nix-daemon doesn't support these features either, every
 build under this mechanism must bypass it entirely via an alternate,
-non-daemon store:
+non-daemon store, run through the patched Nix binary. **`run-nix.sh`**
+wraps both concerns — it resolves `packages.<system>.patched-nix` with
+whatever Nix is already on `PATH`, then re-execs into it with the alt
+store and required experimental/system features already set:
 
 ```sh
-nix build --store 'local?root=/tmp/some-dir' \
-  --extra-experimental-features 'ca-derivations dynamic-derivations nix-command flakes' \
-  --accept-flake-config \
-  .#checks.x86_64-linux.small
+./run-nix.sh build '.#checks.x86_64-linux.small' -L --no-link --print-out-paths
 ```
 
-(`--accept-flake-config` lets the flake's own `nixConfig` block auto-supply
-the `builder-rpc-v0` system feature and `ca-derivations dynamic-derivations`
-experimental features; pass them explicitly with `--extra-*` flags instead
-if you'd rather not trust flake config.)
+(Under the hood this is equivalent to manually passing
+`--extra-experimental-features 'ca-derivations dynamic-derivations nix-command flakes'`,
+`--extra-system-features builder-rpc-v0`, `--accept-flake-config`, and
+`--store 'local?root=<dir>'` to the patched Nix binary directly — see
+`run-nix.sh` if you need to reproduce that by hand.)
 
 ## Building and running smithy-cli
 
 ```sh
-PATCHED=/nix/store/i0vbmsxgy74fj135isyhd51b15xarwwz-nix-2.36.0pre20260802_8307c48
-STORE=/some/persistent/dir   # NOT inside this repo -- gitignored, ~2GB
-
-"$PATCHED/bin/nix" build --store "local?root=$STORE" \
-  --extra-experimental-features 'ca-derivations dynamic-derivations nix-command flakes' \
-  --accept-flake-config \
-  '.#packages.x86_64-linux.smithy-cli' -L --no-link --print-out-paths
+./run-nix.sh build '.#packages.x86_64-linux.smithy-cli' -L --no-link --print-out-paths
 ```
 
-Running the result directly (`$STORE/nix/store/.../bin/smithy`) fails —
+Running the result directly (`<store>/nix/store/.../bin/smithy`) fails —
 its wrapper script and Java's own RPATH bake in absolute `/nix/store/...`
-paths that don't exist outside the alt store. `nix run` re-resolves and
-executes correctly against the same alt store instead:
+paths that don't exist outside the alt store. `nix run` (via the same
+wrapper) re-resolves and executes correctly against the same alt store
+instead:
 
 ```sh
-"$PATCHED/bin/nix" run --store "local?root=$STORE" \
-  --extra-experimental-features 'ca-derivations dynamic-derivations nix-command flakes' \
-  --accept-flake-config \
-  '.#packages.x86_64-linux.smithy-cli' -- --version
+./run-nix.sh run '.#packages.x86_64-linux.smithy-cli' -- --version
 # -> 1.72.1
 
-"$PATCHED/bin/nix" run --store "local?root=$STORE" \
-  --extra-experimental-features 'ca-derivations dynamic-derivations nix-command flakes' \
-  --accept-flake-config \
-  '.#packages.x86_64-linux.smithy-cli' -- validate some-model.smithy
+./run-nix.sh run '.#packages.x86_64-linux.smithy-cli' -- validate some-model.smithy
 ```
+
+`run-nix.sh` defaults its store to a sibling `../gradle-drvs-store/`
+directory (kept out of git, ~2GB once smithy-cli is built) — override with
+`NIX_STORE_ROOT=/some/dir`.
 
 ## Using this from another flake
 
