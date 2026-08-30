@@ -7,6 +7,10 @@ dynamically-constructed derivation, chained by real dependency edges
 instead of relying on the fixed-output/network trick (compiling needs no
 network once dependencies are cached, so there's nothing to "unlock").
 
+See **`GRADLE-SPLIT.md`** for the module dependency graph and the
+resulting Nix derivation graph, diagrammed. This document focuses on the
+mechanism and gotchas, not the graph shape.
+
 ## The core problem: passing a not-yet-built output between derivations
 
 The fetch mechanism only ever needed `builtins.placeholder "out"` (a

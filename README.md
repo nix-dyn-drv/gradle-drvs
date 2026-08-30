@@ -90,11 +90,13 @@ copied between independent JVM invocations with no other shared state,
 restores `FROM-CACHE` task outputs exactly as if it were one build.
 
 See `NOTES.md` for the full writeup (gotchas, the placeholder formula, why
-`primed-gradle-home.nix` exists). Verified end-to-end: all 6 modules build
-as independent derivations, `smithy-cli`'s own module resolves its 4
-upstream jars `FROM-CACHE`, and the resulting jar set is functionally
-identical to the monolithic build (`smithy --version` → `1.72.1`,
-`smithy validate` → `SUCCESS: Validated 243 shapes`).
+`primed-gradle-home.nix` exists) and **`GRADLE-SPLIT.md`** for the module
+dependency graph and the resulting Nix derivation graph, diagrammed.
+Verified end-to-end: all 6 modules build as independent derivations,
+`smithy-cli`'s own module resolves its 4 upstream jars `FROM-CACHE`, and the
+resulting jar set is functionally identical to the monolithic build
+(`smithy --version` → `1.72.1`, `smithy validate` →
+`SUCCESS: Validated 243 shapes`).
 
 ## Files
 
