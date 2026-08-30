@@ -96,6 +96,36 @@ the `builder-rpc-v0` system feature and `ca-derivations dynamic-derivations`
 experimental features; pass them explicitly with `--extra-*` flags instead
 if you'd rather not trust flake config.)
 
+## Building and running smithy-cli
+
+```sh
+PATCHED=/nix/store/i0vbmsxgy74fj135isyhd51b15xarwwz-nix-2.36.0pre20260802_8307c48
+STORE=/some/persistent/dir   # NOT inside this repo -- gitignored, ~2GB
+
+"$PATCHED/bin/nix" build --store "local?root=$STORE" \
+  --extra-experimental-features 'ca-derivations dynamic-derivations nix-command flakes' \
+  --accept-flake-config \
+  '.#packages.x86_64-linux.smithy-cli' -L --no-link --print-out-paths
+```
+
+Running the result directly (`$STORE/nix/store/.../bin/smithy`) fails —
+its wrapper script and Java's own RPATH bake in absolute `/nix/store/...`
+paths that don't exist outside the alt store. `nix run` re-resolves and
+executes correctly against the same alt store instead:
+
+```sh
+"$PATCHED/bin/nix" run --store "local?root=$STORE" \
+  --extra-experimental-features 'ca-derivations dynamic-derivations nix-command flakes' \
+  --accept-flake-config \
+  '.#packages.x86_64-linux.smithy-cli' -- --version
+# -> 1.72.1
+
+"$PATCHED/bin/nix" run --store "local?root=$STORE" \
+  --extra-experimental-features 'ca-derivations dynamic-derivations nix-command flakes' \
+  --accept-flake-config \
+  '.#packages.x86_64-linux.smithy-cli' -- validate some-model.smithy
+```
+
 ## Using this from another flake
 
 ```nix
@@ -146,13 +176,12 @@ passthru attribute to get there from a compact lockfile — see
   run routinely (e.g. in CI), the escape hatch nixgg already uses for an
   analogous problem is a persistent worker-protocol connection instead of
   shelling out per artifact.
-- Running the built binary required manually invoking `java -cp ... `
-  against the alt store's paths and copying/inspecting outputs from
-  `local?root=...` directly — `nix copy` into the real multi-user store
-  needs root/daemon privileges this user doesn't have. Not a mechanism
-  limitation, just a consequence of testing under an alt store; a real
-  deployment would substitute normally once the patched Nix is trusted more
-  broadly (or once `dynamic-derivations` lands upstream).
+- The build output only exists under the alt store (`local?root=...`), not
+  the real multi-user Nix store — `nix copy --to local` needs root/daemon
+  privileges this user doesn't have. `nix run --store 'local?root=...'`
+  (see above) is the clean way to execute it regardless; a real deployment
+  would substitute normally once the patched Nix is trusted more broadly
+  (or once `dynamic-derivations` lands upstream).
 - Generating `deps.json` itself dynamically (rather than consuming an
   existing one) is a different, larger problem — it needs real unrestricted
   network access to *discover* hashes, which points at Nix's
