@@ -13,7 +13,7 @@
 }:
 
 let
-  dynamicMitmFetch = import ../dynamic-mitm-fetch.nix { inherit pkgs patchedNix; };
+  dynamicMitmFetchSharded = import ../dynamic-mitm-fetch-sharded.nix { inherit pkgs patchedNix; };
 in
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "smithy-cli";
@@ -36,12 +36,15 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   __darwinAllowLocalNetworking = true;
 
-  # Only change from upstream package.nix: mitmCache is produced by a
-  # builder-rpc-v0 dynamic derivation (dynamic-mitm-fetch.nix) instead of
-  # gradle.fetchDeps -> mitm-cache.fetch's eager, eval-time fetchurl/writeText
-  # construction. Still reuses gradle.fetchDeps's own JSON decompression /
-  # maven-metadata.xml synthesis unchanged (only its final fetch step is
-  # replaced) -- see ../test-smithy-mitm.nix and ../README.md.
+  # Only change from upstream package.nix: mitmCache is produced by
+  # builder-rpc-v0 dynamic derivations (dynamic-mitm-fetch-sharded.nix)
+  # instead of gradle.fetchDeps -> mitm-cache.fetch's eager, eval-time
+  # fetchurl/writeText construction. Sharded across 16 independent outer
+  # sandboxes so Nix's scheduler registers artifacts in parallel (measured
+  # ~2.5x faster than one big sandbox at this ~1100-file scale). Still
+  # reuses gradle.fetchDeps's own JSON decompression / maven-metadata.xml
+  # synthesis unchanged (only the final fetch step is replaced) -- see
+  # ../test-smithy-mitm-sharded.nix and ../README.md.
   mitmCache =
     let
       expanded = gradle.fetchDeps {
@@ -50,8 +53,9 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       };
       expandedData = builtins.fromJSON (builtins.readFile expanded.data);
     in
-    (dynamicMitmFetch {
+    (dynamicMitmFetchSharded {
       name = "${finalAttrs.pname}-deps";
+      shards = 16;
       data = builtins.removeAttrs expandedData [ "!version" ];
     }).result;
 

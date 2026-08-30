@@ -44,6 +44,26 @@ Entries that need no network (synthesized `maven-metadata.xml` text, or
 straight into a manifest file consumed by the assembler, since there's
 nothing to prove a hash against.
 
+## Splitting the job into smaller derivations (sharding)
+
+The single-sandbox design above registers every artifact sequentially in
+one loop (`nix derivation add` is a fork+exec call per artifact) — at
+~1100 entries that loop alone took **2m20s** before any fetch/build even
+started (measured). Since each artifact's registration is independent,
+`dynamic-mitm-fetch-sharded.nix` splits `data` into N disjoint chunks (by
+sorted key, so re-runs produce the same shards and hit the same cached
+fetch drvs) and builds each chunk as its **own independent outer
+derivation** — Nix's own scheduler then runs up to `--max-jobs` of those
+registration loops in parallel, instead of one long serial one. The N
+resulting `$out/https/...` subtrees are merged with a plain (non-dynamic)
+`pkgs.symlinkJoin` — safe because shards are disjoint by construction, so
+merging can never hit a path collision.
+
+Measured on this machine (22 cores, full real `smithy-cli` `deps.json`,
+~1100 entries, fresh store each time): unsharded **2m20s**, 16-way sharded
+**54s** — about **2.5x** faster. `smithy-cli/package.nix` uses the sharded
+version (`shards = 16`) by default.
+
 ## Files
 
 - **`dynamic-mitm-fetch.nix`** — the reusable function. Signature-compatible
@@ -51,15 +71,20 @@ nothing to prove a hash against.
   `{ outer, result }` where `result` is the drop-in `mitmCache` value.
 - **`dynamic-mitm-fetch-builder.sh`** — the outer derivation's builder
   script (the actual dynamic-derivations logic).
-- **`test-small.nix`** — standalone test, 3 synthetic entries (2 real fetches
-  + 1 synthesized text), no Gradle involved.
-- **`test-smithy-mitm.nix`** — integration test: reuses nixpkgs'
-  `gradle.fetchDeps`'s existing eval-time JSON expansion unchanged (only its
-  final fetch/assembly step, `mitm-cache.fetch`, is replaced), fed a real (or
-  trimmed) `smithy-cli` `deps.json`.
+- **`dynamic-mitm-fetch-sharded.nix`** — splits `data` across N independent
+  calls to `dynamic-mitm-fetch.nix` and merges the results; see "Splitting
+  the job into smaller derivations" above.
+- **`test-small.nix`** / **`test-small-sharded.nix`** — standalone tests, 3
+  synthetic entries (2 real fetches + 1 synthesized text), no Gradle
+  involved.
+- **`test-smithy-mitm.nix`** / **`test-smithy-mitm-sharded.nix`** —
+  integration tests: reuse nixpkgs' `gradle.fetchDeps`'s existing eval-time
+  JSON expansion unchanged (only its final fetch/assembly step,
+  `mitm-cache.fetch`, is replaced), fed a real (or trimmed) `smithy-cli`
+  `deps.json`.
 - **`smithy-cli/package.nix`** + **`smithy-cli/deps.json`** — a full copy of
   nixpkgs' `smithy-cli` recipe with exactly one change: `mitmCache` is built
-  via `dynamicMitmFetch` instead of `gradle.fetchDeps`. Exposed as
+  via `dynamicMitmFetchSharded` instead of `gradle.fetchDeps`. Exposed as
   `packages.<system>.smithy-cli` in the flake. This is the real end-to-end
   build (see "Verified so far" below) — not just a `mitmCache` unit test.
 - **`deps-subset.json`** — trimmed real slice of `smithy-cli`'s `deps.json`
@@ -156,10 +181,10 @@ passthru attribute to get there from a compact lockfile — see
   `deps-subset.json`): passes, hash matches nixpkgs' recorded `deps.json`
   hash exactly.
 - **Full end-to-end `smithy-cli` build against the real, complete
-  `deps.json`** (`smithy-cli/package.nix`, ~600 artifacts / ~1100 files):
-  registration of all ~1100 dynamic fetch derivations completed in a few
-  minutes, `mitm-cache`'s proxy-replay setup hook accepted the resulting
-  tree with no changes needed, the real Gradle build ran
+  `deps.json`** (`smithy-cli/package.nix`, ~600 artifacts / ~1100 files),
+  using the sharded (16-way) mitmCache: total ~54s for mitmCache
+  registration + fetch, `mitm-cache`'s proxy-replay setup hook accepted the
+  resulting tree with no changes needed, the real Gradle build ran
   (`:smithy-cli:shadowJar`, `:smithy-cli:test`), `BUILD SUCCESSFUL`,
   `versionCheckHook` confirmed `smithy --version` → `1.72.1`, and
   `smithy validate` against a real Smithy model succeeded
@@ -168,10 +193,11 @@ passthru attribute to get there from a compact lockfile — see
 
 ## Known scope cuts / next steps
 
-- Registration overhead at full scale (~1100 `nix derivation add` shell-outs)
-  turned out to be acceptable for a one-off proof-of-concept build (a few
-  minutes), but was not rigorously benchmarked — if this pattern needs to
-  run routinely (e.g. in CI), the escape hatch nixgg already uses for an
+- Sharding (16-way, measured ~2.5x) helps, but 54s of registration for
+  ~1100 artifacts is still overhead a static lockfile approach
+  (`gradle.fetchDeps`) doesn't pay at all — if this pattern needs to run
+  routinely (e.g. in CI) rather than as a one-off proof of concept, the
+  escape hatch nixgg already uses for an
   analogous problem is a persistent worker-protocol connection instead of
   shelling out per artifact.
 - The build output only exists under the alt store (`local?root=...`), not
