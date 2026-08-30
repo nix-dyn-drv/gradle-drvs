@@ -64,6 +64,38 @@ Measured on this machine (22 cores, full real `smithy-cli` `deps.json`,
 **54s** — about **2.5x** faster. `smithy-cli/package.nix` uses the sharded
 version (`shards = 16`) by default.
 
+## Splitting the Gradle *compile* itself into per-module derivations
+
+Everything above only splits *fetching*. `gradle-split.nix` applies the
+same dynamic-derivations mechanism to the **compile** step: each Gradle
+module in a multi-module project becomes its own dynamically-constructed
+derivation, chained by real dependency edges (`smithy-utils` → `smithy-model`
+→ `{smithy-build, smithy-diff, smithy-syntax}` → `smithy-cli`) instead of
+one monolithic Gradle invocation.
+
+Unlike fetching, compiling needs no network trick — each module derivation
+is an ordinary `nar`/`sha256` output (content depends on source, not known
+ahead of time), ordered purely by declared dependency edges. The interesting
+new problem is different: **how does derivation B reference derivation A's
+not-yet-built output**, when neither's output path is known in advance?
+Nix's answer is an **input placeholder** concept — see `NOTES.md` for the
+exact formula and why `builtins.outputOf` can't be called from inside the
+sandbox that's constructing the graph.
+
+Cross-module incrementality (so `smithy-model`'s build doesn't have to
+recompile `smithy-utils`, even though they're two completely independent
+Nix derivations with nothing shared by default) comes from **Gradle's own
+build cache** — verified empirically that a plain `--build-cache` directory,
+copied between independent JVM invocations with no other shared state,
+restores `FROM-CACHE` task outputs exactly as if it were one build.
+
+See `NOTES.md` for the full writeup (gotchas, the placeholder formula, why
+`primed-gradle-home.nix` exists). Verified end-to-end: all 6 modules build
+as independent derivations, `smithy-cli`'s own module resolves its 4
+upstream jars `FROM-CACHE`, and the resulting jar set is functionally
+identical to the monolithic build (`smithy --version` → `1.72.1`,
+`smithy validate` → `SUCCESS: Validated 243 shapes`).
+
 ## Files
 
 - **`dynamic-mitm-fetch.nix`** — the reusable function. Signature-compatible
@@ -90,6 +122,20 @@ version (`shards = 16`) by default.
 - **`deps-subset.json`** — trimmed real slice of `smithy-cli`'s `deps.json`
   (3 files: gson jar + poms) for fast iteration before running against the
   full ~600-artifact set.
+- **`gradle-split.nix`** + **`gradle-split-builder.sh`** — splits a Gradle
+  multi-module compile into per-module dynamic derivations chained via
+  input placeholders; see "Splitting the Gradle compile itself" above and
+  `NOTES.md` for the mechanism.
+- **`primed-gradle-home.nix`** — resolves a project's Gradle dependencies
+  (via its normal build task, so it's guaranteed to match `deps.json`) and
+  exports just the dependency cache, for per-module derivations to copy in
+  before running `--offline`.
+- **`test-gradle-split-2mod.nix`** — minimal 2-module test
+  (`smithy-utils` → `smithy-model`) for fast iteration.
+- **`test-gradle-split-full.nix`** — the full 6-module `smithy-cli` chain;
+  exposed as `packages.<system>.smithy-cli-modsplit` in the flake.
+- **`test-primed-gradle-home.nix`** — standalone test of
+  `primed-gradle-home.nix` against real `smithy-cli` deps.
 - **`flake.nix`** — packages the patched Nix (`packages.<system>.patched-nix`,
   from `NixOS/nix#15793`), the library function
   (`lib.<system>.dynamicMitmFetch`), and the built package
@@ -190,6 +236,14 @@ passthru attribute to get there from a compact lockfile — see
   `smithy validate` against a real Smithy model succeeded
   ("Validated 243 shapes"). This is the full seam working, not just the
   `mitmCache` replacement in isolation.
+- **Full 6-module compile split** (`gradle-split.nix`, exposed as
+  `packages.<system>.smithy-cli-modsplit`): `smithy-utils` → `smithy-model`
+  → `{smithy-build, smithy-diff, smithy-syntax}` → `smithy-cli`, each its
+  own dynamically-constructed derivation. `smithy-model` restores
+  `smithy-utils:compileJava` `FROM-CACHE`; `smithy-cli` restores 8 of its
+  13 tasks `FROM-CACHE` from its 4 upstream modules. Resulting jars are
+  functionally identical to the monolithic build (same `--version` /
+  `validate` results as above). See `NOTES.md` for the mechanism.
 
 ## Known scope cuts / next steps
 

@@ -38,6 +38,24 @@
           pkgs = nixpkgs.legacyPackages.${system};
           patchedNix = self.packages.${system}.patched-nix;
         };
+        # Same smithy-cli jar set, but compiled via 6 independent,
+        # dynamically-constructed per-module derivations instead of one
+        # monolithic Gradle invocation -- see gradle-split.nix.
+        # `gradleSplit`'s `.result` is a raw builtins.outputOf string, not
+        # a derivation attrset (no .drvPath) -- wrap it in a trivial
+        # derivation so this is buildable as an ordinary flake package.
+        smithy-cli-modsplit =
+          let
+            pkgs = nixpkgs.legacyPackages.${system};
+            split = import ./test-gradle-split-full.nix {
+              inherit pkgs;
+              patchedNix = self.packages.${system}.patched-nix;
+            };
+          in
+          pkgs.runCommand "smithy-cli-modsplit" { } ''
+            mkdir -p $out
+            cp -r ${split.result}/* $out/
+          '';
       });
 
       # Reusable library function: a drop-in, dynamic-derivations-based
@@ -45,9 +63,25 @@
       # Usage:
       #   dynamicMitmFetch = gradle-drvs.lib.${system}.dynamicMitmFetch;
       #   mitmCache = (dynamicMitmFetch { name = "my-deps"; data = expandedJson; }).result;
+      #
+      # Also exposes gradleSplit, the analogous mechanism for splitting a
+      # Gradle multi-module COMPILE into per-module dynamic derivations
+      # (see gradle-split.nix).
       lib = forAllSystems (system: {
         dynamicMitmFetch =
           import ./dynamic-mitm-fetch.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            patchedNix = self.packages.${system}.patched-nix;
+            inherit system;
+          };
+        dynamicMitmFetchSharded =
+          import ./dynamic-mitm-fetch-sharded.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            patchedNix = self.packages.${system}.patched-nix;
+            inherit system;
+          };
+        gradleSplit =
+          import ./gradle-split.nix {
             pkgs = nixpkgs.legacyPackages.${system};
             patchedNix = self.packages.${system}.patched-nix;
             inherit system;
