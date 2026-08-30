@@ -1,0 +1,10 @@
+{
+  "!version": 1,
+  "https://repo.maven.apache.org/maven2": {
+    "com/google/code/gson#gson-parent/2.14.0": { "pom": "sha256-grD2aUxXWKuLsH4FYwII1Q9YnUteBP0KBG1Zzfe6PR0=" },
+    "com/google/code/gson#gson/2.14.0": {
+      "jar": "sha256-LL0Rm/GWHCh4gxCWPcgLpl9Yze7B3ROci9sSQPqiw28=",
+      "pom": "sha256-H6ASLA43MxkmQoYcNr5Mb3maeVMnojvdKSJpG26bpIA="
+    }
+  }
+}
