@@ -40,14 +40,14 @@
         };
         # Same smithy-cli jar set, but compiled via 6 independent,
         # dynamically-constructed per-module derivations instead of one
-        # monolithic Gradle invocation -- see gradle-split.nix.
+        # monolithic Gradle invocation -- see lib/gradle-split.nix.
         # `gradleSplit`'s `.result` is a raw builtins.outputOf string, not
         # a derivation attrset (no .drvPath) -- wrap it in a trivial
         # derivation so this is buildable as an ordinary flake package.
         smithy-cli-modsplit =
           let
             pkgs = nixpkgs.legacyPackages.${system};
-            split = import ./test-gradle-split-full.nix {
+            split = import ./tests/smithy-cli-modsplit.nix {
               inherit pkgs;
               patchedNix = self.packages.${system}.patched-nix;
             };
@@ -66,22 +66,22 @@
       #
       # Also exposes gradleSplit, the analogous mechanism for splitting a
       # Gradle multi-module COMPILE into per-module dynamic derivations
-      # (see gradle-split.nix).
+      # (see lib/gradle-split.nix).
       lib = forAllSystems (system: {
         dynamicMitmFetch =
-          import ./dynamic-mitm-fetch.nix {
+          import ./lib/dynamic-mitm-fetch.nix {
             pkgs = nixpkgs.legacyPackages.${system};
             patchedNix = self.packages.${system}.patched-nix;
             inherit system;
           };
         dynamicMitmFetchSharded =
-          import ./dynamic-mitm-fetch-sharded.nix {
+          import ./lib/dynamic-mitm-fetch-sharded.nix {
             pkgs = nixpkgs.legacyPackages.${system};
             patchedNix = self.packages.${system}.patched-nix;
             inherit system;
           };
         gradleSplit =
-          import ./gradle-split.nix {
+          import ./lib/gradle-split.nix {
             pkgs = nixpkgs.legacyPackages.${system};
             patchedNix = self.packages.${system}.patched-nix;
             inherit system;
@@ -95,7 +95,7 @@
       # as named, discoverable build targets instead.
       checks = forAllSystems (system: {
         small = (
-          import ./test-small.nix {
+          import ./tests/small.nix {
             pkgs = nixpkgs.legacyPackages.${system};
             patchedNix = self.packages.${system}.patched-nix;
           }

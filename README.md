@@ -101,33 +101,34 @@ resulting jar set is functionally identical to the monolithic build
 
 ## Files
 
-- **`dynamic-mitm-fetch.nix`** — the reusable function. Signature-compatible
-  with nixpkgs' `mitm-cache.fetch { name; data; }`; returns
-  `{ outer, result }` where `result` is the drop-in `mitmCache` value.
-- **`dynamic-mitm-fetch-builder.sh`** — the outer derivation's builder
+- **`lib/dynamic-mitm-fetch.nix`** — the reusable function.
+  Signature-compatible with nixpkgs' `mitm-cache.fetch { name; data; }`;
+  returns `{ outer, result }` where `result` is the drop-in `mitmCache`
+  value.
+- **`lib/dynamic-mitm-fetch-builder.sh`** — the outer derivation's builder
   script (the actual dynamic-derivations logic).
-- **`dynamic-mitm-fetch-sharded.nix`** — splits `data` across N independent
-  calls to `dynamic-mitm-fetch.nix` and merges the results; see "Splitting
-  the job into smaller derivations" above.
-- **`test-small.nix`** — standalone test, 3 synthetic entries (2 real
+- **`lib/dynamic-mitm-fetch-sharded.nix`** — splits `data` across N
+  independent calls to `dynamic-mitm-fetch.nix` and merges the results;
+  see "Splitting the job into smaller derivations" above.
+- **`lib/gradle-split.nix`** + **`lib/gradle-split-builder.sh`** — splits a
+  Gradle multi-module compile into per-module dynamic derivations chained
+  via input placeholders; see "Splitting the Gradle compile itself" above
+  and `GRADLE-SPLIT.md` for the mechanism.
+- **`lib/primed-gradle-home.nix`** — resolves a project's Gradle
+  dependencies (via its normal build task, so it's guaranteed to match
+  `deps.json`) and exports just the dependency cache, for per-module
+  derivations to copy in before running `--offline`.
+- **`tests/small.nix`** — standalone test, 3 synthetic entries (2 real
   fetches + 1 synthesized text), no Gradle involved. Wired into
   `checks.<system>.small`.
+- **`tests/smithy-cli-modsplit.nix`** — the full 6-module `smithy-cli`
+  chain (`smithy-utils` → `smithy-model` → `{build, diff, syntax}` →
+  `cli`); exposed as `packages.<system>.smithy-cli-modsplit` in the flake.
 - **`smithy-cli/package.nix`** + **`smithy-cli/deps.json`** — a full copy of
   nixpkgs' `smithy-cli` recipe with exactly one change: `mitmCache` is built
   via `dynamicMitmFetchSharded` instead of `gradle.fetchDeps`. Exposed as
   `packages.<system>.smithy-cli` in the flake. This is the real end-to-end
   build (see "Verified so far" below) — not just a `mitmCache` unit test.
-- **`gradle-split.nix`** + **`gradle-split-builder.sh`** — splits a Gradle
-  multi-module compile into per-module dynamic derivations chained via
-  input placeholders; see "Splitting the Gradle compile itself" above and
-  `GRADLE-SPLIT.md` for the mechanism.
-- **`primed-gradle-home.nix`** — resolves a project's Gradle dependencies
-  (via its normal build task, so it's guaranteed to match `deps.json`) and
-  exports just the dependency cache, for per-module derivations to copy in
-  before running `--offline`.
-- **`test-gradle-split-full.nix`** — the full 6-module `smithy-cli` chain
-  (`smithy-utils` → `smithy-model` → `{build, diff, syntax}` → `cli`);
-  exposed as `packages.<system>.smithy-cli-modsplit` in the flake.
 - **`flake.nix`** — packages the patched Nix (`packages.<system>.patched-nix`,
   from `NixOS/nix#15793`), the library function
   (`lib.<system>.dynamicMitmFetch`), and the built package

@@ -12,12 +12,12 @@
   patchedNix ? builtins.storePath /nix/store/i0vbmsxgy74fj135isyhd51b15xarwwz-nix-2.36.0pre20260802_8307c48,
 }:
 let
-  dynamicMitmFetchSharded = import ./dynamic-mitm-fetch-sharded.nix { inherit pkgs patchedNix; };
-  gradleSplit = import ./gradle-split.nix { inherit pkgs patchedNix; };
+  dynamicMitmFetchSharded = import ../lib/dynamic-mitm-fetch-sharded.nix { inherit pkgs patchedNix; };
+  gradleSplit = import ../lib/gradle-split.nix { inherit pkgs patchedNix; };
 
   expanded = pkgs.gradle.fetchDeps {
     pkg = { pname = "smithy-cli-split-test"; };
-    data = ./smithy-cli/deps.json;
+    data = ../smithy-cli/deps.json;
   };
   expandedData = builtins.fromJSON (builtins.readFile expanded.data);
 
@@ -34,7 +34,7 @@ let
     hash = "sha256-IBqh2ATKi5MfaCjvXz7KE2p3lGJa8Sn3YhOuwaW1/sk=";
   };
 
-  depsCache = pkgs.callPackage ./primed-gradle-home.nix {
+  depsCache = pkgs.callPackage ../lib/primed-gradle-home.nix {
     inherit src mitmCache;
     gradleBuildTask = ":smithy-cli:shadowJar :smithy-cli:test";
   };

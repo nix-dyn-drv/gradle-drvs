@@ -13,7 +13,7 @@
 }:
 
 let
-  dynamicMitmFetchSharded = import ../dynamic-mitm-fetch-sharded.nix { inherit pkgs patchedNix; };
+  dynamicMitmFetchSharded = import ../lib/dynamic-mitm-fetch-sharded.nix { inherit pkgs patchedNix; };
 in
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "smithy-cli";

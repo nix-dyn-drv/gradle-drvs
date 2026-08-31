@@ -6,7 +6,7 @@
   patchedNix ? builtins.storePath /nix/store/i0vbmsxgy74fj135isyhd51b15xarwwz-nix-2.36.0pre20260802_8307c48,
 }:
 let
-  dynamicMitmFetch = import ./dynamic-mitm-fetch.nix { inherit pkgs patchedNix; };
+  dynamicMitmFetch = import ../lib/dynamic-mitm-fetch.nix { inherit pkgs patchedNix; };
 in
 dynamicMitmFetch {
   name = "test-deps";
