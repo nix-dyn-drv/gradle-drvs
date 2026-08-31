@@ -44,7 +44,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   # ~2.5x faster than one big sandbox at this ~1100-file scale). Still
   # reuses gradle.fetchDeps's own JSON decompression / maven-metadata.xml
   # synthesis unchanged (only the final fetch step is replaced) -- see
-  # ../test-smithy-mitm-sharded.nix and ../README.md.
+  # ../README.md.
   mitmCache =
     let
       expanded = gradle.fetchDeps {

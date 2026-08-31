@@ -109,12 +109,8 @@ resulting jar set is functionally identical to the monolithic build
   calls to `dynamic-mitm-fetch.nix` and merges the results; see "Splitting
   the job into smaller derivations" above.
 - **`test-small.nix`** — standalone test, 3 synthetic entries (2 real
-  fetches + 1 synthesized text), no Gradle involved.
-- **`test-smithy-mitm.nix`** / **`test-smithy-mitm-sharded.nix`** —
-  integration tests: reuse nixpkgs' `gradle.fetchDeps`'s existing eval-time
-  JSON expansion unchanged (only its final fetch/assembly step,
-  `mitm-cache.fetch`, is replaced), fed a real (or trimmed) `smithy-cli`
-  `deps.json`.
+  fetches + 1 synthesized text), no Gradle involved. Wired into
+  `checks.<system>.small`.
 - **`smithy-cli/package.nix`** + **`smithy-cli/deps.json`** — a full copy of
   nixpkgs' `smithy-cli` recipe with exactly one change: `mitmCache` is built
   via `dynamicMitmFetchSharded` instead of `gradle.fetchDeps`. Exposed as
@@ -212,7 +208,7 @@ directory (kept out of git, ~2GB once smithy-cli is built) — override with
 accepts: `{ "<url>": { "hash": "sha256-..." } | { "text": "..." } | { "redirect": "<url>" } }`.
 Reuse nixpkgs' `gradle.fetchDeps { pkg; data; }` and read its `.data`
 passthru attribute to get there from a compact lockfile — see
-`test-smithy-mitm.nix` for the exact pattern.
+`smithy-cli/package.nix`'s `mitmCache` attribute for the exact pattern.
 
 ## Verified so far
 
