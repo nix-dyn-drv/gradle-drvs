@@ -1,5 +1,7 @@
 # gradle-drvs
 
+[![CI](https://github.com/nix-dyn-drv/gradle-drvs/actions/workflows/ci.yml/badge.svg)](https://github.com/nix-dyn-drv/gradle-drvs/actions/workflows/ci.yml)
+
 A small, self-contained proof of concept: bring Nix's experimental **Dynamic
 Derivations** to a Gradle dependency-fetch pipeline. Instead of nixpkgs'
 `gradle.fetchDeps` / `mitm-cache.fetch` deciding *which* Maven artifacts to
@@ -135,6 +137,12 @@ resulting jar set is functionally identical to the monolithic build
   it with the alt store + required experimental/system features already
   set. Use this instead of invoking `nix` directly — see "Why a patched Nix
   is required" below.
+- **`.github/workflows/ci.yml`** — runs all three of the above on every
+  push/PR: `checks.small`, a full `smithy-cli` build + `smithy --version`,
+  and a full `smithy-cli-modsplit` build. No local Nix daemon setup is
+  needed on the runner — `patched-nix` substitutes directly from
+  `cache.nixos.org`, so `run-nix.sh` works out of the box on a stock
+  `cachix/install-nix-action` runner.
 
 ## Why a patched Nix is required
 

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  small:
+    name: checks.small (fast smoke test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Run checks.small
+        run: ./run-nix.sh build '.#checks.x86_64-linux.small' -L --no-link --print-out-paths
+
+  smithy-cli:
+    name: packages.smithy-cli (dynamic mitmCache fetch + real Gradle build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Build smithy-cli
+        run: ./run-nix.sh build '.#packages.x86_64-linux.smithy-cli' -L --no-link --print-out-paths
+      - name: Run smithy --version
+        run: ./run-nix.sh run '.#packages.x86_64-linux.smithy-cli' -- --version
+
+  smithy-cli-modsplit:
+    name: packages.smithy-cli-modsplit (per-module compile split)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Build smithy-cli-modsplit
+        run: ./run-nix.sh build '.#packages.x86_64-linux.smithy-cli-modsplit' -L --no-link --print-out-paths
