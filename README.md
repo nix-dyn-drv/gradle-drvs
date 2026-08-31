@@ -121,9 +121,6 @@ resulting jar set is functionally identical to the monolithic build
   via `dynamicMitmFetchSharded` instead of `gradle.fetchDeps`. Exposed as
   `packages.<system>.smithy-cli` in the flake. This is the real end-to-end
   build (see "Verified so far" below) — not just a `mitmCache` unit test.
-- **`deps-subset.json`** — trimmed real slice of `smithy-cli`'s `deps.json`
-  (3 files: gson jar + poms) for fast iteration before running against the
-  full ~600-artifact set.
 - **`gradle-split.nix`** + **`gradle-split-builder.sh`** — splits a Gradle
   multi-module compile into per-module dynamic derivations chained via
   input placeholders; see "Splitting the Gradle compile itself" above and
@@ -136,8 +133,6 @@ resulting jar set is functionally identical to the monolithic build
   (`smithy-utils` → `smithy-model`) for fast iteration.
 - **`test-gradle-split-full.nix`** — the full 6-module `smithy-cli` chain;
   exposed as `packages.<system>.smithy-cli-modsplit` in the flake.
-- **`test-primed-gradle-home.nix`** — standalone test of
-  `primed-gradle-home.nix` against real `smithy-cli` deps.
 - **`flake.nix`** — packages the patched Nix (`packages.<system>.patched-nix`,
   from `NixOS/nix#15793`), the library function
   (`lib.<system>.dynamicMitmFetch`), and the built package
@@ -225,9 +220,6 @@ passthru attribute to get there from a compact lockfile — see
 
 - Standalone 3-entry mechanism test: passes, byte-identical content vs.
   reference fetches.
-- Real `smithy-cli` dependency subset (gson jar+poms, 3 files, see
-  `deps-subset.json`): passes, hash matches nixpkgs' recorded `deps.json`
-  hash exactly.
 - **Full end-to-end `smithy-cli` build against the real, complete
   `deps.json`** (`smithy-cli/package.nix`, ~600 artifacts / ~1100 files),
   using the sharded (16-way) mitmCache: total ~54s for mitmCache
