@@ -80,9 +80,9 @@ is an ordinary `nar`/`sha256` output (content depends on source, not known
 ahead of time), ordered purely by declared dependency edges. The interesting
 new problem is different: **how does derivation B reference derivation A's
 not-yet-built output**, when neither's output path is known in advance?
-Nix's answer is an **input placeholder** concept — see `NOTES.md` for the
-exact formula and why `builtins.outputOf` can't be called from inside the
-sandbox that's constructing the graph.
+Nix's answer is an **input placeholder** concept — see `GRADLE-SPLIT.md`
+for the exact formula and why `builtins.outputOf` can't be called from
+inside the sandbox that's constructing the graph.
 
 Cross-module incrementality (so `smithy-model`'s build doesn't have to
 recompile `smithy-utils`, even though they're two completely independent
@@ -91,10 +91,9 @@ build cache** — verified empirically that a plain `--build-cache` directory,
 copied between independent JVM invocations with no other shared state,
 restores `FROM-CACHE` task outputs exactly as if it were one build.
 
-See `NOTES.md` for the full writeup (gotchas, the placeholder formula, why
-`primed-gradle-home.nix` exists) and **`GRADLE-SPLIT.md`** for the module
-dependency graph and the resulting Nix derivation graph, diagrammed.
-Verified end-to-end: all 6 modules build as independent derivations,
+See **`GRADLE-SPLIT.md`** for the full writeup: the module dependency
+graph, the resulting Nix derivation graph (diagrammed), the placeholder
+formula, and gotchas. Verified end-to-end: all 6 modules build as independent derivations,
 `smithy-cli`'s own module resolves its 4 upstream jars `FROM-CACHE`, and the
 resulting jar set is functionally identical to the monolithic build
 (`smithy --version` → `1.72.1`, `smithy validate` →
@@ -121,7 +120,7 @@ resulting jar set is functionally identical to the monolithic build
 - **`gradle-split.nix`** + **`gradle-split-builder.sh`** — splits a Gradle
   multi-module compile into per-module dynamic derivations chained via
   input placeholders; see "Splitting the Gradle compile itself" above and
-  `NOTES.md` for the mechanism.
+  `GRADLE-SPLIT.md` for the mechanism.
 - **`primed-gradle-home.nix`** — resolves a project's Gradle dependencies
   (via its normal build task, so it's guaranteed to match `deps.json`) and
   exports just the dependency cache, for per-module derivations to copy in
@@ -239,7 +238,7 @@ passthru attribute to get there from a compact lockfile — see
   `smithy-utils:compileJava` `FROM-CACHE`; `smithy-cli` restores 8 of its
   13 tasks `FROM-CACHE` from its 4 upstream modules. Resulting jars are
   functionally identical to the monolithic build (same `--version` /
-  `validate` results as above). See `NOTES.md` for the mechanism.
+  `validate` results as above). See `GRADLE-SPLIT.md` for the mechanism.
 
 ## Known scope cuts / next steps
 

@@ -10,7 +10,7 @@
 # Cross-module incrementality is achieved via Gradle's OWN build cache
 # (--build-cache), seeded from the upstream module's cache dir (passed
 # through the same inputs.drvs/outputOf mechanism) -- proven empirically
-# (see NOTES.md) that Gradle restores FROM-CACHE task outputs across
+# (see GRADLE-SPLIT.md) that Gradle restores FROM-CACHE task outputs across
 # completely independent JVM invocations sharing nothing but a cache
 # directory and a primed dependency cache.
 {
