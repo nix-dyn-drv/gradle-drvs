@@ -95,8 +95,8 @@ resulting derivation graph.
 `nix store submit-output`, `builder-rpc-v0`) isn't fully implemented in
 mainline/Determinate Nix yet — `nix store submit-output` isn't even a
 recognized subcommand there. This flake builds a patched Nix from
-[NixOS/nix#15793](https://github.com/NixOS/nix/pull/15793) (same revision
-the sibling `~/nixgg` project uses) as `packages.<system>.patched-nix`. It
+[NixOS/nix#15793](https://github.com/NixOS/nix/pull/15793) as
+`packages.<system>.patched-nix`. It
 substitutes from `cache.nixos.org`, so nothing needs to be compiled from
 source.
 

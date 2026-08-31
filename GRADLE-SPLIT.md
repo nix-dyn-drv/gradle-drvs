@@ -47,17 +47,17 @@ A nor B's output hash is known in advance (a compiled jar's content depends
 on the source, so it's an ordinary `nar`/`sha256` CAFloating output, not a
 fixed one).
 
-This is exactly what Nix calls an **input placeholder** (see
-`~/nix/doc/manual/source/store/derivation/index.md`, "Placeholders"
-section). `builtins.outputOf drv "out"` computes this from *outside* the
+This is exactly what Nix calls an **input placeholder** (see the Nix
+manual's "store/derivation" chapter, "Placeholders" section).
+`builtins.outputOf drv "out"` computes this from *outside* the
 sandbox, but **`builtins.storePath` (needed to give a raw path string
 enough context for `outputOf`) is blocked inside a `builder-rpc-v0`
 sandbox** ("Operation 10 not allowed inside derivation") — so it can't be
 used from the outer builder script that's actually constructing the graph.
 
 The fix: reimplement the placeholder formula directly in the builder
-script, following `DownstreamPlaceholder::unknownCaOutput` in
-`~/nix/src/libstore/downstream-placeholder.cc`:
+script, following `DownstreamPlaceholder::unknownCaOutput` in Nix's
+`src/libstore/downstream-placeholder.cc`:
 
 ```
 clearText = "nix-upstream-output:" + <drv's store-hash-part> + ":" + <drv name minus .drv>

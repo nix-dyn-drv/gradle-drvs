@@ -1,20 +1,15 @@
 # Sharded variant of dynamic-mitm-fetch.nix: splits `data` into N disjoint
-# chunks and builds each chunk as its own independent outer derivation
-# (i.e. its own builder-rpc-v0 sandbox running its own registration loop),
-# then merges the resulting $out/https/... subtrees.
+# chunks, each built as its own independent outer derivation, then merges
+# the resulting $out/https/... subtrees.
 #
-# Why: the unsharded version registers every artifact sequentially inside
-# ONE outer sandbox (`nix derivation add` is a fork+exec per artifact) --
-# at ~1100 entries (smithy-cli's real deps.json) that loop alone took
-# several minutes before any fetch/build even started. Since each chunk's
-# registration loop is independent, Nix's own scheduler can run up to
-# `--max-jobs` of them in parallel once they're split into separate
-# derivations -- this doesn't reduce total registration WORK, but it does
-# reduce wall-clock time by however many outer sandboxes can run at once.
+# The unsharded version registers every artifact sequentially in one
+# sandbox (`nix derivation add` is a fork+exec per artifact) -- at ~1100
+# entries that loop alone took several minutes before any fetch started.
+# Splitting into separate derivations lets Nix's scheduler run the
+# registration loops in parallel instead.
 #
-# The merge step is a PLAIN (non-dynamic) derivation: shards are disjoint
-# by construction (each URL key lands in exactly one shard), so there is
-# never a path collision to resolve, and `pkgs.symlinkJoin` is enough.
+# The merge is a plain (non-dynamic) derivation: shards are disjoint by
+# construction, so there's never a path collision to resolve.
 {
   pkgs ? import <nixpkgs> { },
   patchedNix,

@@ -12,12 +12,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      # Ubuntu 24.04 GHA runners restrict unprivileged user namespaces via
-      # AppArmor by default (kernel >= 6.5), which breaks Nix's build
-      # sandbox for the non-daemon `local?root=...` store run-nix.sh uses
-      # (bind-mounts inside the sandbox silently come up incomplete --
-      # "No such file or directory" for a path Nix just copied in).
-      - name: Allow unprivileged user namespaces (Nix sandbox needs this)
+      # ubuntu-latest restricts unprivileged user namespaces via AppArmor,
+      # which breaks Nix's build sandbox.
+      - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: cachix/install-nix-action@v27
         with:
@@ -33,7 +30,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Allow unprivileged user namespaces (Nix sandbox needs this)
+      - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: cachix/install-nix-action@v27
         with:
@@ -51,7 +48,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Allow unprivileged user namespaces (Nix sandbox needs this)
+      - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: cachix/install-nix-action@v27
         with:

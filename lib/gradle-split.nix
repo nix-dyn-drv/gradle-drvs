@@ -1,18 +1,13 @@
 # Splits a Gradle multi-module build into one dynamically-constructed
-# derivation per module, chained via `inputs.drvs` + hand-resolved input
-# placeholders (`builtins.outputOf`) so Nix builds upstream modules first --
-# same builder-rpc-v0 + `nix derivation add` + `nix store submit-output`
-# mechanism as dynamic-mitm-fetch.nix, but for compiling instead of
-# fetching. Unlike fetching, compiling needs no network trick: each module
-# derivation is an ordinary CAFloating (nar/sha256) output, ordered by real
-# dependency edges instead of relying on fixed-output network access.
+# derivation per module, chained via inputs.drvs + hand-resolved input
+# placeholders so Nix builds upstream modules first. Same
+# builder-rpc-v0/nix-derivation-add mechanism as dynamic-mitm-fetch.nix,
+# but for compiling: each module is an ordinary CAFloating (nar/sha256)
+# output, ordered by real dependency edges rather than a network trick.
 #
-# Cross-module incrementality is achieved via Gradle's OWN build cache
-# (--build-cache), seeded from the upstream module's cache dir (passed
-# through the same inputs.drvs/outputOf mechanism) -- proven empirically
-# (see GRADLE-SPLIT.md) that Gradle restores FROM-CACHE task outputs across
-# completely independent JVM invocations sharing nothing but a cache
-# directory and a primed dependency cache.
+# Cross-module incrementality comes from Gradle's own build cache
+# (--build-cache), seeded from each upstream module's cache dir through the
+# same placeholder mechanism -- see GRADLE-SPLIT.md.
 {
   pkgs ? import <nixpkgs> { },
   patchedNix,

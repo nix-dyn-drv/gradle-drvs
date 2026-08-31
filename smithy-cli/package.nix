@@ -36,15 +36,11 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   __darwinAllowLocalNetworking = true;
 
-  # Only change from upstream package.nix: mitmCache is produced by
-  # builder-rpc-v0 dynamic derivations (dynamic-mitm-fetch-sharded.nix)
-  # instead of gradle.fetchDeps -> mitm-cache.fetch's eager, eval-time
-  # fetchurl/writeText construction. Sharded across 16 independent outer
-  # sandboxes so Nix's scheduler registers artifacts in parallel (measured
-  # ~2.5x faster than one big sandbox at this ~1100-file scale). Still
-  # reuses gradle.fetchDeps's own JSON decompression / maven-metadata.xml
-  # synthesis unchanged (only the final fetch step is replaced) -- see
-  # ../README.md.
+  # Only change from upstream: mitmCache is built by dynamic derivations
+  # (dynamic-mitm-fetch-sharded.nix) instead of gradle.fetchDeps's eager,
+  # eval-time fetchurl construction. Reuses gradle.fetchDeps's own JSON
+  # expansion / maven-metadata.xml synthesis unchanged -- only the final
+  # fetch step is replaced.
   mitmCache =
     let
       expanded = gradle.fetchDeps {

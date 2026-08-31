@@ -1,13 +1,8 @@
-# Resolves Gradle dependencies for a project by running its normal build
-# (via gradleBuildTask, same task set the real smithy-cli recipe uses --
-# guaranteed to match what's captured in deps.json) and exports the
-# resulting dependency cache ($GRADLE_USER_HOME/caches/modules-2, jars-9)
-# as a Nix store path.
-#
-# This is the thing per-module compile derivations (see
-# smithy-cli-split.nix) copy into a fresh, writable $GRADLE_USER_HOME
-# before running --offline. Reuses the exact mitmCache mechanism already
-# proven for smithy-cli (dynamic-mitm-fetch-sharded.nix) unchanged.
+# Resolves Gradle dependencies for a project (via gradleBuildTask, the same
+# task set the real recipe uses, so it matches deps.json) and exports just
+# the resulting dependency cache. gradle-split.nix's per-module derivations
+# copy this into a fresh, writable $GRADLE_USER_HOME before running
+# --offline.
 {
   lib,
   stdenvNoCC,

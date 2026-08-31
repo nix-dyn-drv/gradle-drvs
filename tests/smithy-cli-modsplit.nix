@@ -1,12 +1,5 @@
-# Full 6-module split of smithy-cli's build via gradle-split.nix:
-#   smithy-utils (leaf)
-#     -> smithy-model
-#          -> smithy-build
-#          -> smithy-diff
-#          -> smithy-syntax (needs the "shadow" jar variant of syntax
-#             per smithy-cli's build.gradle.kts, but the plain jar task
-#             already produces a usable classes jar for this experiment)
-#               -> smithy-cli
+# Full 6-module split of smithy-cli's build via gradle-split.nix -- see
+# GRADLE-SPLIT.md for the dependency graph.
 {
   pkgs ? import <nixpkgs> { },
   patchedNix ? builtins.storePath /nix/store/i0vbmsxgy74fj135isyhd51b15xarwwz-nix-2.36.0pre20260802_8307c48,

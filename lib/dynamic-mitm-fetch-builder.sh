@@ -1,9 +1,8 @@
 set -euo pipefail
 export NIX_CONFIG='extra-experimental-features = nix-command ca-derivations dynamic-derivations'
 
-# Mirrors mitm-cache/fetch.nix's `urlToPath`: strip the scheme, everything
-# after becomes the relative path under $out/https/... (or $out/<scheme>/...
-# for non-https URLs, matching upstream's fallback branch).
+# Mirrors mitm-cache/fetch.nix's urlToPath: strip the scheme, everything
+# after becomes the relative path under $out/https/...
 url_to_path() {
   case "$1" in
   https://*) printf '%s\n' "https/${1#https://}" ;;
@@ -11,8 +10,7 @@ url_to_path() {
   esac
 }
 
-# assembler's own derivation name must be the outer's name with the ".drv"
-# suffix stripped (Nix rejects a mismatch: "was named X, expected Y").
+# The assembler's derivation name must equal the outer name minus ".drv".
 assemblerName="${name%.drv}"
 
 work=$(mktemp -d)
@@ -31,10 +29,9 @@ while IFS= read -r entry; do
 
   case "$kind" in
   hash)
-    # A genuine fixed-output derivation gets network access even inside a
-    # network-isolated builder-rpc-v0 sandbox (validated: CAFixed grants
-    # it, CAFloating does not) -- this is the one case that needs the
-    # dynamic-derivation dance at all.
+    # A fixed-output derivation gets network access even inside this
+    # otherwise network-isolated sandbox -- the only reason this whole
+    # mechanism works.
     hashSri="$value"
     hex=$(nix hash convert --to base16 --hash-algo sha256 "$hashSri")
     fixedPath=$(nix-store --print-fixed-path sha256 "$hex" "item-$i")
@@ -64,14 +61,12 @@ while IFS= read -r entry; do
     printf 'fetch\t%s\t%s\n' "$relPath" "$fixedPath" >>"$manifest"
     ;;
   text)
-    # Pure string synthesis (e.g. maven-metadata.xml): no network needed,
-    # so it doesn't need a dynamic derivation at all -- the assembler
-    # writes it directly from the manifest.
+    # No network needed, so no derivation needed -- the assembler writes
+    # this directly from the manifest.
     printf 'text\t%s\t%s\n' "$relPath" "$(printf '%s' "$value" | base64 -w0)" >>"$manifest"
     echo "item $i (text) -> inline ($relPath)" >&2
     ;;
   redirect)
-    # mitm-cache/fetch.nix's own convention: redirect = "$out/${urlToPath val}".
     printf 'redirect\t%s\t%s\n' "$relPath" "$(url_to_path "$value")" >>"$manifest"
     echo "item $i (redirect) -> $(url_to_path "$value") ($relPath)" >&2
     ;;
@@ -82,10 +77,9 @@ while IFS= read -r entry; do
   esac
 done < <(jq -c 'to_entries[]' "$dataFile")
 
-# Manifest is uploaded to the store (AddToStore is allowed inside a
-# builder-rpc-v0 sandbox) so the assembler's own builder script stays a
-# small constant size regardless of entry count -- embedding one line per
-# entry directly in `args` risks the ~128KiB argv ceiling at real scale.
+# Uploaded to the store so the assembler script stays a fixed size --
+# embedding one line per entry in `args` would risk the ~128KiB argv limit
+# at real scale.
 manifestStorePath=$(nix store add --name "${assemblerName}-manifest.tsv" "$manifest")
 manifestBasename=$(basename "$manifestStorePath")
 
@@ -108,10 +102,8 @@ done <"$manifest"
 ASSEMBLE
 )
 
-# The assembler's output path isn't known ahead of time (it's a plain
-# nar/sha256 CAFloating output, not a fixed one) -- use the placeholder,
-# not a literal path, matching the leaf-derivation pattern in
-# ~/nix/tests/functional/dyn-drv/non-trivial-submitted.nix.
+# The assembler's output path isn't known ahead of time (nar/sha256, not a
+# fixed hash), so it uses a placeholder instead of a literal path.
 outPlaceholder=$(nix eval --raw --expr 'builtins.placeholder "out"')
 
 assemblerJson=$(jq -n \

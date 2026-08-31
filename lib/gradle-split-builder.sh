@@ -10,11 +10,10 @@ declare -A drvBase   # module -> its own drv basename (once registered)
 declare -A drvOut    # module -> input placeholder for its "out"
 declare -A visited
 
-# Nix's DownstreamPlaceholder::unknownCaOutput formula (see
-# ~/nix/src/libstore/downstream-placeholder.cc) -- builtins.storePath is
-# blocked inside a builder-rpc-v0 sandbox ("Operation not allowed"), so we
-# reimplement the placeholder computation directly rather than relying on
-# builtins.outputOf from inside the sandbox.
+# Nix's DownstreamPlaceholder::unknownCaOutput formula (see Nix's
+# src/libstore/downstream-placeholder.cc). builtins.storePath is blocked
+# inside a builder-rpc-v0 sandbox, so builtins.outputOf can't be used here
+# -- this reimplements the same computation directly.
 placeholder_for() {
   local drvPath="$1"
   local base
@@ -114,11 +113,10 @@ for mod in $modules; do
   register_module "$mod"
 done
 
-# assembler's own derivation name must be the outer's name with the ".drv"
-# suffix stripped (Nix rejects a mismatch). It collects every visited
-# module's compiled jars into one flat $out -- not just the final module's
-# -- mirroring how a real multi-module Gradle build's installPhase copies
-# jars from every module it built (see smithy-cli/package.nix).
+# Assembler's derivation name must equal the outer name minus ".drv". It
+# collects every module's compiled jars into one flat $out, mirroring how
+# a real multi-module build's installPhase copies jars from every module
+# (see smithy-cli/package.nix).
 assemblerName="${name%.drv}"
 assemblerPlaceholderOwn=$(nix eval --raw --expr 'builtins.placeholder "out"')
 
