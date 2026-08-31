@@ -108,9 +108,8 @@ resulting jar set is functionally identical to the monolithic build
 - **`dynamic-mitm-fetch-sharded.nix`** — splits `data` across N independent
   calls to `dynamic-mitm-fetch.nix` and merges the results; see "Splitting
   the job into smaller derivations" above.
-- **`test-small.nix`** / **`test-small-sharded.nix`** — standalone tests, 3
-  synthetic entries (2 real fetches + 1 synthesized text), no Gradle
-  involved.
+- **`test-small.nix`** — standalone test, 3 synthetic entries (2 real
+  fetches + 1 synthesized text), no Gradle involved.
 - **`test-smithy-mitm.nix`** / **`test-smithy-mitm-sharded.nix`** —
   integration tests: reuse nixpkgs' `gradle.fetchDeps`'s existing eval-time
   JSON expansion unchanged (only its final fetch/assembly step,
@@ -129,9 +128,8 @@ resulting jar set is functionally identical to the monolithic build
   (via its normal build task, so it's guaranteed to match `deps.json`) and
   exports just the dependency cache, for per-module derivations to copy in
   before running `--offline`.
-- **`test-gradle-split-2mod.nix`** — minimal 2-module test
-  (`smithy-utils` → `smithy-model`) for fast iteration.
-- **`test-gradle-split-full.nix`** — the full 6-module `smithy-cli` chain;
+- **`test-gradle-split-full.nix`** — the full 6-module `smithy-cli` chain
+  (`smithy-utils` → `smithy-model` → `{build, diff, syntax}` → `cli`);
   exposed as `packages.<system>.smithy-cli-modsplit` in the flake.
 - **`flake.nix`** — packages the patched Nix (`packages.<system>.patched-nix`,
   from `NixOS/nix#15793`), the library function
