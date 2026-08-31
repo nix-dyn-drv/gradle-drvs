@@ -2,174 +2,115 @@
 
 [![CI](https://github.com/nix-dyn-drv/gradle-drvs/actions/workflows/ci.yml/badge.svg)](https://github.com/nix-dyn-drv/gradle-drvs/actions/workflows/ci.yml)
 
-A small, self-contained proof of concept: bring Nix's experimental **Dynamic
-Derivations** to a Gradle dependency-fetch pipeline. Instead of nixpkgs'
-`gradle.fetchDeps` / `mitm-cache.fetch` deciding *which* Maven artifacts to
-fetch (and instantiating one Nix derivation per file) at **eval time**, this
-repo defers that decision into a sandboxed **build-time** script — one
-dynamically-constructed, genuinely fixed-output derivation per artifact,
-built inside an otherwise network-isolated `builder-rpc-v0` sandbox.
+Proof of concept for using Nix's experimental Dynamic Derivations with a
+Gradle build. Normally, `gradle.fetchDeps` / `mitm-cache.fetch` decide
+which Maven artifacts to fetch at eval time, instantiating one derivation
+per file up front. Here that decision moves into a build-time script
+instead: derivations are constructed dynamically inside a sandboxed build,
+one per artifact.
 
-Tested against nixpkgs' real `smithy-cli` dependency lockfile (`deps.json`).
+Tested against nixpkgs' real `smithy-cli` package and its dependency
+lockfile (`deps.json`).
 
-## Why this works: the core mechanism
+## How it works
 
-A `builder-rpc-v0` sandbox has no network access by default. But Nix always
-grants network access to a **genuinely fixed-output derivation** (one whose
-output hash is already known, so Nix can verify the fetch against it) — even
-one constructed dynamically, at build time, from inside that same sandbox.
+A `builder-rpc-v0` sandbox has no network access by default, but a
+genuinely fixed-output derivation (hash known in advance) still gets
+network access to verify its fetch, even if it was constructed dynamically
+from inside that sandbox.
 
-So the outer derivation's builder, for every Maven artifact it needs (each
-already has a known `sha256` from the lockfile):
+For each Maven artifact (hash already known from the lockfile), the outer
+derivation's builder:
 
-1. computes the literal, statically-known output path via
-   `nix-store --print-fixed-path sha256 <hex-hash> <name>` (not a
-   placeholder — that's only for outputs whose path *isn't* known ahead of
-   time),
-2. constructs a small JSON derivation description with
-   `"outputs": {"out": {"method": "flat", "hash": "sha256-<SRI>"}}` (the
-   `hash` key, not just `hashAlgo`, is what makes this a *fixed*, not
-   *floating*, output — floating outputs do **not** get network access),
-3. hands it to `nix derivation add` (prints the new `.drv` path),
-4. collects all such per-artifact drvs, builds one final "assembler" inner
-   derivation (via `nix derivation add` again) that symlinks each into a
-   `$out/https/<host>/<path>` tree — the same shape nixpkgs'
+1. computes the artifact's output path with `nix-store --print-fixed-path`,
+2. builds a JSON derivation description with
+   `"outputs": {"out": {"method": "flat", "hash": "sha256-<SRI>"}}`,
+3. registers it with `nix derivation add`,
+4. once all artifacts are registered, builds one assembler derivation that
+   symlinks them into a `$out/https/<host>/<path>` tree — the shape
    `mitm-cache/fetch.nix` already produces,
-5. `nix store submit-output`s the assembler as the outer derivation's own
-   output.
+5. submits the assembler as its own output via `nix store submit-output`.
 
-The consumer resolves the whole thing with a single
-`builtins.outputOf outer.outPath "out"`.
+The consumer resolves this with `builtins.outputOf outer.outPath "out"`.
+Entries that don't need network (synthesized `maven-metadata.xml`,
+`redirect` aliases) skip the fixed-output step and go straight into a
+manifest the assembler reads.
 
-Entries that need no network (synthesized `maven-metadata.xml` text, or
-`redirect` aliases) skip the fixed-output dance entirely — they're written
-straight into a manifest file consumed by the assembler, since there's
-nothing to prove a hash against.
+## Sharding the fetch
 
-## Splitting the job into smaller derivations (sharding)
+Registering ~1100 artifacts sequentially in one sandbox took 2m20s before
+any fetch started. `lib/dynamic-mitm-fetch-sharded.nix` splits the artifact
+list into N chunks, each its own outer derivation, so Nix's scheduler runs
+the registration loops in parallel. Measured: 16-way sharding cuts it to
+54s. `smithy-cli/package.nix` uses 16 shards by default.
 
-The single-sandbox design above registers every artifact sequentially in
-one loop (`nix derivation add` is a fork+exec call per artifact) — at
-~1100 entries that loop alone took **2m20s** before any fetch/build even
-started (measured). Since each artifact's registration is independent,
-`dynamic-mitm-fetch-sharded.nix` splits `data` into N disjoint chunks (by
-sorted key, so re-runs produce the same shards and hit the same cached
-fetch drvs) and builds each chunk as its **own independent outer
-derivation** — Nix's own scheduler then runs up to `--max-jobs` of those
-registration loops in parallel, instead of one long serial one. The N
-resulting `$out/https/...` subtrees are merged with a plain (non-dynamic)
-`pkgs.symlinkJoin` — safe because shards are disjoint by construction, so
-merging can never hit a path collision.
+## Splitting the compile itself
 
-Measured on this machine (22 cores, full real `smithy-cli` `deps.json`,
-~1100 entries, fresh store each time): unsharded **2m20s**, 16-way sharded
-**54s** — about **2.5x** faster. `smithy-cli/package.nix` uses the sharded
-version (`shards = 16`) by default.
+`lib/gradle-split.nix` applies the same idea to compiling: each Gradle
+module in `smithy-cli`'s dependency graph (`smithy-utils` → `smithy-model`
+→ `{build, diff, syntax}` → `cli`) becomes its own derivation, ordered by
+real dependency edges instead of a network trick (compiling needs no
+network once deps are cached).
 
-## Splitting the Gradle *compile* itself into per-module derivations
+Chaining compiles requires referencing an upstream derivation's not-yet-built
+output — an input placeholder, in Nix's terms. `builtins.outputOf` can
+normally compute this, but it isn't available from inside the sandbox that's
+constructing the graph, so the placeholder formula is reimplemented directly
+in the builder script (see `GRADLE-SPLIT.md`).
 
-Everything above only splits *fetching*. `gradle-split.nix` applies the
-same dynamic-derivations mechanism to the **compile** step: each Gradle
-module in a multi-module project becomes its own dynamically-constructed
-derivation, chained by real dependency edges (`smithy-utils` → `smithy-model`
-→ `{smithy-build, smithy-diff, smithy-syntax}` → `smithy-cli`) instead of
-one monolithic Gradle invocation.
-
-Unlike fetching, compiling needs no network trick — each module derivation
-is an ordinary `nar`/`sha256` output (content depends on source, not known
-ahead of time), ordered purely by declared dependency edges. The interesting
-new problem is different: **how does derivation B reference derivation A's
-not-yet-built output**, when neither's output path is known in advance?
-Nix's answer is an **input placeholder** concept — see `GRADLE-SPLIT.md`
-for the exact formula and why `builtins.outputOf` can't be called from
-inside the sandbox that's constructing the graph.
-
-Cross-module incrementality (so `smithy-model`'s build doesn't have to
-recompile `smithy-utils`, even though they're two completely independent
-Nix derivations with nothing shared by default) comes from **Gradle's own
-build cache** — verified empirically that a plain `--build-cache` directory,
-copied between independent JVM invocations with no other shared state,
-restores `FROM-CACHE` task outputs exactly as if it were one build.
-
-See **`GRADLE-SPLIT.md`** for the full writeup: the module dependency
-graph, the resulting Nix derivation graph (diagrammed), the placeholder
-formula, and gotchas. Verified end-to-end: all 6 modules build as independent derivations,
-`smithy-cli`'s own module resolves its 4 upstream jars `FROM-CACHE`, and the
-resulting jar set is functionally identical to the monolithic build
-(`smithy --version` → `1.72.1`, `smithy validate` →
-`SUCCESS: Validated 243 shapes`).
+Incremental builds across these separate derivations come from Gradle's own
+`--build-cache`: copying just the cache directory between independent
+`gradle` invocations restores `FROM-CACHE` task results as if it were one
+build. `GRADLE-SPLIT.md` has the full writeup, including a diagram of the
+resulting derivation graph.
 
 ## Files
 
-- **`lib/dynamic-mitm-fetch.nix`** — the reusable function.
-  Signature-compatible with nixpkgs' `mitm-cache.fetch { name; data; }`;
-  returns `{ outer, result }` where `result` is the drop-in `mitmCache`
-  value.
-- **`lib/dynamic-mitm-fetch-builder.sh`** — the outer derivation's builder
-  script (the actual dynamic-derivations logic).
-- **`lib/dynamic-mitm-fetch-sharded.nix`** — splits `data` across N
-  independent calls to `dynamic-mitm-fetch.nix` and merges the results;
-  see "Splitting the job into smaller derivations" above.
-- **`lib/gradle-split.nix`** + **`lib/gradle-split-builder.sh`** — splits a
-  Gradle multi-module compile into per-module dynamic derivations chained
-  via input placeholders; see "Splitting the Gradle compile itself" above
-  and `GRADLE-SPLIT.md` for the mechanism.
-- **`lib/primed-gradle-home.nix`** — resolves a project's Gradle
-  dependencies (via its normal build task, so it's guaranteed to match
-  `deps.json`) and exports just the dependency cache, for per-module
-  derivations to copy in before running `--offline`.
-- **`tests/small.nix`** — standalone test, 3 synthetic entries (2 real
-  fetches + 1 synthesized text), no Gradle involved. Wired into
+- `lib/dynamic-mitm-fetch.nix` + `-builder.sh` — the fetch mechanism.
+  Drop-in replacement for `mitm-cache.fetch { name; data; }`.
+- `lib/dynamic-mitm-fetch-sharded.nix` — splits the above across N
+  independent derivations and merges the results.
+- `lib/gradle-split.nix` + `-builder.sh` — the compile-split mechanism.
+- `lib/primed-gradle-home.nix` — resolves a project's Gradle dependencies
+  and exports just the cache, for per-module derivations to reuse.
+- `tests/small.nix` — synthetic smoke test, no Gradle involved. Wired into
   `checks.<system>.small`.
-- **`tests/smithy-cli-modsplit.nix`** — the full 6-module `smithy-cli`
-  chain (`smithy-utils` → `smithy-model` → `{build, diff, syntax}` →
-  `cli`); exposed as `packages.<system>.smithy-cli-modsplit` in the flake.
-- **`smithy-cli/package.nix`** + **`smithy-cli/deps.json`** — a full copy of
-  nixpkgs' `smithy-cli` recipe with exactly one change: `mitmCache` is built
-  via `dynamicMitmFetchSharded` instead of `gradle.fetchDeps`. Exposed as
-  `packages.<system>.smithy-cli` in the flake. This is the real end-to-end
-  build (see "Verified so far" below) — not just a `mitmCache` unit test.
-- **`flake.nix`** — packages the patched Nix (`packages.<system>.patched-nix`,
-  from `NixOS/nix#15793`), the library function
-  (`lib.<system>.dynamicMitmFetch`), and the built package
-  (`packages.<system>.smithy-cli`) for downstream use.
-- **`run-nix.sh`** — wrapper that resolves the patched Nix and re-execs into
-  it with the alt store + required experimental/system features already
-  set. Use this instead of invoking `nix` directly — see "Why a patched Nix
-  is required" below.
-- **`.github/workflows/ci.yml`** — runs all three of the above on every
-  push/PR: `checks.small`, a full `smithy-cli` build + `smithy --version`,
-  and a full `smithy-cli-modsplit` build. No local Nix daemon setup is
-  needed on the runner — `patched-nix` substitutes directly from
-  `cache.nixos.org`, so `run-nix.sh` works out of the box on a stock
-  `cachix/install-nix-action` runner.
+- `tests/smithy-cli-modsplit.nix` — the full 6-module `smithy-cli` chain.
+  Exposed as `packages.<system>.smithy-cli-modsplit`.
+- `smithy-cli/package.nix` + `deps.json` — nixpkgs' `smithy-cli` recipe
+  with one change: `mitmCache` uses `dynamicMitmFetchSharded` instead of
+  `gradle.fetchDeps`. Exposed as `packages.<system>.smithy-cli`.
+- `flake.nix` — packages the patched Nix, the library functions
+  (`lib.<system>.dynamicMitmFetch`, `gradleSplit`, ...), and the built
+  packages above.
+- `run-nix.sh` — resolves the patched Nix and re-execs into it with the
+  right store and feature flags already set. Use this instead of `nix`
+  directly.
+- `.github/workflows/ci.yml` — runs all three targets above on every
+  push/PR.
 
-## Why a patched Nix is required
+## Why a patched Nix
 
-The `dynamic-derivations` experimental feature this relies on
-(`builtins.outputOf`, `nix derivation add`, `nix store submit-output`,
-`builder-rpc-v0`) is not fully implemented in mainline/Determinate Nix as of
-this writing — in particular `nix store submit-output` isn't even a
-recognized subcommand there. This flake pins and builds a patched Nix from
+`dynamic-derivations` (`builtins.outputOf`, `nix derivation add`,
+`nix store submit-output`, `builder-rpc-v0`) isn't fully implemented in
+mainline/Determinate Nix yet — `nix store submit-output` isn't even a
+recognized subcommand there. This flake builds a patched Nix from
 [NixOS/nix#15793](https://github.com/NixOS/nix/pull/15793) (same revision
-already vetted by the sibling `~/nixgg` project) as `packages.<system>.patched-nix`.
+the sibling `~/nixgg` project uses) as `packages.<system>.patched-nix`. It
+substitutes from `cache.nixos.org`, so nothing needs to be compiled from
+source.
 
-Because the *system* nix-daemon doesn't support these features either, every
-build under this mechanism must bypass it entirely via an alternate,
-non-daemon store, run through the patched Nix binary. **`run-nix.sh`**
-wraps both concerns — it resolves `packages.<system>.patched-nix` with
-whatever Nix is already on `PATH`, then re-execs into it with the alt
-store and required experimental/system features already set:
+The system nix-daemon doesn't support these features either, so builds
+also need to bypass it via a non-daemon store. `run-nix.sh` handles both:
 
 ```sh
 ./run-nix.sh build '.#checks.x86_64-linux.small' -L --no-link --print-out-paths
 ```
 
-(Under the hood this is equivalent to manually passing
+That's equivalent to passing
 `--extra-experimental-features 'ca-derivations dynamic-derivations nix-command flakes'`,
 `--extra-system-features builder-rpc-v0`, `--accept-flake-config`, and
-`--store 'local?root=<dir>'` to the patched Nix binary directly — see
-`run-nix.sh` if you need to reproduce that by hand.)
+`--store 'local?root=<dir>'` directly.
 
 ## Building and running smithy-cli
 
@@ -177,28 +118,24 @@ store and required experimental/system features already set:
 ./run-nix.sh build '.#packages.x86_64-linux.smithy-cli' -L --no-link --print-out-paths
 ```
 
-Running the result directly (`<store>/nix/store/.../bin/smithy`) fails —
-its wrapper script and Java's own RPATH bake in absolute `/nix/store/...`
-paths that don't exist outside the alt store. `nix run` (via the same
-wrapper) re-resolves and executes correctly against the same alt store
-instead:
+The built binary can't be run directly — its wrapper script and Java's
+RPATH reference absolute `/nix/store/...` paths that don't exist outside
+the alt store. Use `nix run` instead, which re-resolves against the same
+store:
 
 ```sh
 ./run-nix.sh run '.#packages.x86_64-linux.smithy-cli' -- --version
-# -> 1.72.1
-
 ./run-nix.sh run '.#packages.x86_64-linux.smithy-cli' -- validate some-model.smithy
 ```
 
-`run-nix.sh` defaults its store to a sibling `../gradle-drvs-store/`
-directory (kept out of git, ~2GB once smithy-cli is built) — override with
-`NIX_STORE_ROOT=/some/dir`.
+The store defaults to a sibling `../gradle-drvs-store/` (not in git,
+~2GB) — override with `NIX_STORE_ROOT`.
 
 ## Using this from another flake
 
 ```nix
 {
-  inputs.gradle-drvs.url = "path:/path/to/gradle-drvs"; # or a git URL once pushed
+  inputs.gradle-drvs.url = "path:/path/to/gradle-drvs";
 
   outputs = { self, nixpkgs, gradle-drvs }:
     let
@@ -206,58 +143,38 @@ directory (kept out of git, ~2GB once smithy-cli is built) — override with
       dynamicMitmFetch = gradle-drvs.lib.${system}.dynamicMitmFetch;
     in
     {
-      # e.g. inside an overridden package.nix:
-      #   mitmCache = (dynamicMitmFetch { name = "my-deps"; data = expandedJson; }).result;
+      # mitmCache = (dynamicMitmFetch { name = "my-deps"; data = expandedJson; }).result;
     };
 }
 ```
 
-`data` must already be in the same *expanded* shape `mitm-cache.fetch`
-accepts: `{ "<url>": { "hash": "sha256-..." } | { "text": "..." } | { "redirect": "<url>" } }`.
-Reuse nixpkgs' `gradle.fetchDeps { pkg; data; }` and read its `.data`
-passthru attribute to get there from a compact lockfile — see
-`smithy-cli/package.nix`'s `mitmCache` attribute for the exact pattern.
+`data` needs the same expanded shape `mitm-cache.fetch` accepts:
+`{ "<url>": { "hash": "sha256-..." } | { "text": "..." } | { "redirect": "<url>" } }`.
+`gradle.fetchDeps { pkg; data; }`'s `.data` output already produces this
+from a compact lockfile — see `smithy-cli/package.nix`'s `mitmCache`
+attribute.
 
-## Verified so far
+## Verified
 
-- Standalone 3-entry mechanism test: passes, byte-identical content vs.
-  reference fetches.
-- **Full end-to-end `smithy-cli` build against the real, complete
-  `deps.json`** (`smithy-cli/package.nix`, ~600 artifacts / ~1100 files),
-  using the sharded (16-way) mitmCache: total ~54s for mitmCache
-  registration + fetch, `mitm-cache`'s proxy-replay setup hook accepted the
-  resulting tree with no changes needed, the real Gradle build ran
-  (`:smithy-cli:shadowJar`, `:smithy-cli:test`), `BUILD SUCCESSFUL`,
-  `versionCheckHook` confirmed `smithy --version` → `1.72.1`, and
-  `smithy validate` against a real Smithy model succeeded
-  ("Validated 243 shapes"). This is the full seam working, not just the
-  `mitmCache` replacement in isolation.
-- **Full 6-module compile split** (`gradle-split.nix`, exposed as
-  `packages.<system>.smithy-cli-modsplit`): `smithy-utils` → `smithy-model`
-  → `{smithy-build, smithy-diff, smithy-syntax}` → `smithy-cli`, each its
-  own dynamically-constructed derivation. `smithy-model` restores
-  `smithy-utils:compileJava` `FROM-CACHE`; `smithy-cli` restores 8 of its
-  13 tasks `FROM-CACHE` from its 4 upstream modules. Resulting jars are
-  functionally identical to the monolithic build (same `--version` /
-  `validate` results as above). See `GRADLE-SPLIT.md` for the mechanism.
+- `packages.smithy-cli`: real fetch of `smithy-cli`'s ~600 Maven artifacts,
+  real Gradle build, `smithy --version` → `1.72.1`, `smithy validate`
+  against a real model → `Validated 243 shapes`.
+- `packages.smithy-cli-modsplit`: the same result, but built from 6
+  separately-compiled module derivations. `smithy-model` restores
+  `smithy-utils:compileJava` from cache; `smithy-cli` restores 8 of 13
+  tasks from cache across its 4 upstream modules.
+- Both run in CI on a plain `ubuntu-latest` runner (see `.github/workflows/ci.yml`).
 
-## Known scope cuts / next steps
+## Known gaps
 
-- Sharding (16-way, measured ~2.5x) helps, but 54s of registration for
-  ~1100 artifacts is still overhead a static lockfile approach
-  (`gradle.fetchDeps`) doesn't pay at all — if this pattern needs to run
-  routinely (e.g. in CI) rather than as a one-off proof of concept, the
-  escape hatch nixgg already uses for an
-  analogous problem is a persistent worker-protocol connection instead of
-  shelling out per artifact.
-- The build output only exists under the alt store (`local?root=...`), not
-  the real multi-user Nix store — `nix copy --to local` needs root/daemon
-  privileges this user doesn't have. `nix run --store 'local?root=...'`
-  (see above) is the clean way to execute it regardless; a real deployment
-  would substitute normally once the patched Nix is trusted more broadly
-  (or once `dynamic-derivations` lands upstream).
-- Generating `deps.json` itself dynamically (rather than consuming an
-  existing one) is a different, larger problem — it needs real unrestricted
-  network access to *discover* hashes, which points at Nix's
-  `impure-derivations` feature instead of the fixed-output trick used here.
-  Not attempted; a good candidate for a follow-up experiment.
+- Sharding helps, but 54s of registration overhead for ~1100 artifacts is
+  still more than a static lockfile pays. A persistent worker-protocol
+  connection (as nixgg uses for the same problem) would remove the
+  per-artifact fork+exec cost, but isn't implemented here.
+- Builds only exist under the alt store, not the real multi-user Nix
+  store — copying into the real store needs root/daemon access this setup
+  doesn't have. `nix run --store 'local?root=...'` works around it.
+- `deps.json` itself is consumed as-is, not generated dynamically.
+  Generating it would need real network access to discover hashes, which
+  points at `impure-derivations` rather than the fixed-output trick used
+  here — a different, larger problem, not attempted.
